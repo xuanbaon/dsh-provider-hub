@@ -1,0 +1,7 @@
+# DSH「供应商中心」
+#
+# 一行 insert 同时激活宿主半边（lib/host.js，挂 /dsh-provider-hub/* 路由）和
+# 网页半边（package.json 里 dsh.client 声明的 lib/client.js，在设置里加一页）。
+- insert:
+    - id: provider-hub
+      name: 'dsh-provider-hub'

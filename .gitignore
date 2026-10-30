@@ -1,0 +1,17 @@
+# 依赖（本插件没有运行时依赖，留着以防以后加）
+node_modules/
+
+# 本插件自己生成/测试产生的临时物
+*.log
+*.tmp
+.tmp-*
+state.json
+state.json.bak
+state.json.corrupt-*
+bak-provider-hub-*
+
+# OS / 编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
