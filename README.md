@@ -73,6 +73,10 @@ DSH 的 provider 引用散在三个地方，改一处其余不动：
 换供应商额外遵守：
 
 - **只改选择，不删定义**：把 `provider: A` 改成 `B`，`A` 的 `providers:` 块原样留着，换回来很容易。
+- **两种粒度**：底部的「换供应商」是批量（把某家的所有引用一起换）；引用表**每行右侧还有一个「换」**，
+ 点了就在那一行的副行里展开编辑区，只改这一处、别处一行不动。批量怕误伤时就用逐行。
+- **逐行是精确锁定的**：后端按 `file + line` 定位，那一行如果已经不是 `provider: A` 了（刚被别的东西改过），
+  直接 409 让你重扫，不会照着行号瞎改。
 - **overlay 会被改，也会被提醒**：插件生成的 `headless-overlay.yml` 属于"每轮重写的文件"，换了它下次可能被重写回去。
   如果那个 overlay 是「跟随桌面端选中的模型」那种，改完 `desktop` 那份它下一轮就自己跟上了 —— 页面会把这类文件单独标出来。
 - **旧计划不能重放**：同一份计划再执行一次会全部判失败（因为行上的值已经不是原来那个），防手抖连点。
@@ -169,7 +173,7 @@ node tests/sync.mjs --apply   # 真写（先备份）
 | GET | `/dsh-provider-hub/refs` | 引用与悬空判定 + 同步计划 |
 | GET | `/dsh-provider-hub/state` | 偏好 / 已忽略项 / 同步历史 / 数据目录 |
 | POST | `/dsh-provider-hub/sync` | `{apply:false}` 预演 / `{apply:true}` 写盘（先备份）—— **补定义** |
-| POST | `/dsh-provider-hub/rewrite` | `{from, to:{provider,model}, apply, kinds?}` —— **换供应商**：把所有引用 from 的地方改成 to，随后自动补 to 的定义 |
+| POST | `/dsh-provider-hub/rewrite` | `{from, to:{provider,model}, apply, kinds?, only?:{file,line}}` —— **换供应商**：把所有引用 from 的地方改成 to（带 `only` 就只改那一行），随后自动补 to 的定义 |
 | POST | `/dsh-provider-hub/prefs` | 改偏好 `{patch:{...}}` |
 | POST | `/dsh-provider-hub/ignore` | 忽略 / 取消忽略一条引用 |
 | POST | `/dsh-provider-hub/history` | 清空同步历史 `{clear:true}` |

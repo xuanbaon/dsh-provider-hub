@@ -296,5 +296,28 @@ if (scanSessionsBtn && scanSessionsBtn.p && typeof scanSessionsBtn.p.onClick ===
   }
 }
 
+// ── 每条引用都能「单独」换供应商（不是只有批量那一个入口） ──────────────────
+const swapBtn = buttons.find((b) => textOf(b) === '换')
+ok(!!swapBtn, '引用表每行都有「换」按钮（可单独更换提供商）')
+if (swapBtn && swapBtn.p && typeof swapBtn.p.onClick === 'function') {
+  try { swapBtn.p.onClick() } catch (e) { ok(false, '点「换」抛错：' + e.message) }
+  const fourth = render()
+  const t4 = []
+  walk(fourth.tree, (n) => { if (n.t === 'table') t4.push(n) })
+  const h4 = t4.map(headerOf)
+  const refsIdx = h4.findIndex((h) => h.includes('密钥变量'))
+  ok(refsIdx >= 0, '引用表仍然渲染出来了')
+  if (refsIdx >= 0) {
+    const rows4 = rowsOf(t4[refsIdx])
+    const editRow = rows4.find((tr) => textOf(tr).includes('把这一处换成'))
+    ok(!!editRow, '点「换」后这一行的副行变成编辑区（选 provider + 模型）')
+    ok(!!editRow && textOf(editRow).includes('确定'), '编辑区有「确定」按钮')
+    ok(!!editRow && textOf(editRow).includes('只改这一行'), '编辑区说明了只影响这一处')
+    // 别的行不该跟着变成编辑区（只能选中的那一行展开）
+    const editing = rows4.filter((tr) => textOf(tr).includes('把这一处换成'))
+    ok(editing.length === 1, '只有被点的那一行展开编辑区（实际 ' + editing.length + ' 行）')
+  }
+}
+
 console.log(`\n=== 结果：${fail === 0 ? '全部通过' : fail + ' 项失败'} ===`)
 process.exit(fail === 0 ? 0 : 1)

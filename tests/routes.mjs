@@ -139,6 +139,30 @@ try {
   const rwSame = await post('/dsh-provider-hub/rewrite', { from: 'zz-same', to: { provider: 'zz-same' }, apply: false })
   ok(rwSame.ok === true && (rwSame.edits || []).length === 0, 'POST /rewrite 换成自己 = 零改动')
 
+  // ── 单条更换：only:{file,line} 把范围收窄到这一行 ──────────────────────
+  if (fromA) {
+    const one = await post('/dsh-provider-hub/rewrite', {
+      from: fromA.provider, to: { provider: 'zz-one' }, apply: false,
+      only: { file: fromA.file, line: fromA.line },
+    })
+    ok(one.ok === true && (one.edits || []).length === 1, '单条更换：only 只返回这一条（' + ((one.edits || []).length) + ' 条）')
+    ok(one.edits[0] && one.edits[0].file === fromA.file && Number(one.edits[0].line) === Number(fromA.line), '单条更换：命中的正是指定的文件与行')
+    const wrongOne = await post('/dsh-provider-hub/rewrite', {
+      from: fromA.provider, to: { provider: 'zz-one' }, apply: false,
+      only: { file: fromA.file, line: 9999 },
+    })
+    ok(wrongOne.ok === false, '单条更换：行号对不上就会被拒（不猜着改）：' + (wrongOne.error || ''))
+  }
+  // 目标行根本不存在时，即使 apply:true 也必须先被拦下（不能碰任何文件）
+  const rwMiss = await post('/dsh-provider-hub/rewrite', {
+    from: 'zz-nope', to: { provider: 'zz-new' }, apply: true,
+    only: { file: 'C:/definitely/not/here.yml', line: 1 },
+  })
+  ok(rwMiss.ok === false && /不在了|重新扫描/.test(String(rwMiss.error)), '单条更换：目标不存在时 409 并说明（不写盘）')
+  let changedOnly = 0
+  for (const [f, t] of before) { try { if (statSync(f).mtimeMs !== t) changedOnly++ } catch { /* 忽略 */ } }
+  ok(changedOnly === 0, '单条更换失败时没有修改任何配置文件')
+
   // 超大请求体：应被 413 挡掉，而不是把宿主拖住
   const big = '{"apply":false,"pad":"' + 'a'.repeat(60_000) + '"}'
   const over = await status('/dsh-provider-hub/sync', { method: 'POST', headers: { 'content-type': 'application/json' }, body: big })
