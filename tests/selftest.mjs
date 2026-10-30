@@ -144,6 +144,9 @@ console.log('\n=== 6. 沙盒端到端（在临时目录里真写，不碰真实�
     const rr = scanRefs(sc, null)
     ok(rr.dangling.length >= 2, '沙盒：alpha 之外的两处引用被判悬空（实际 ' + rr.dangling.length + '）')
     const pl = planSync(sc, rr)
+    // ⭐ 2026-10-30：overlay 是插件每轮重写的临时层，往里"同步"没意义 ⇒ 必须被拦下并说明原因
+    ok(pl.blocked.some((b) => b.kind === 'overlay' && /overlay/.test(String(b.why))), '沙盒：overlay 里的引用不进计划（会被下一轮覆盖）')
+    ok(!pl.actions.some((a) => a.add.some((x) => x.refFile && /headless-overlay\.yml$/.test(x.refFile))), '沙盒：计划里没有来自 overlay 的改动')
     ok(pl.actions.length === 1 && pl.actions[0].profile === 'beta', '沙盒：计划只改 beta 一个文件')
     ok(pl.actions[0].add[0].name === 'zz' && pl.actions[0].add[0].from === 'alpha', '沙盒：从 alpha 取 zz 的定义')
     const rec = applySync(sc, pl.actions)
