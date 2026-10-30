@@ -5,7 +5,7 @@
  *
  * 退出码：0 = 全部关键断言通过；1 = 有断言失败。
  */
-import { scanConfig, scanSessions, scanRefs, planSync, piAiProviders, agentDefaultModel, insertProviders, applySync } from '../lib/scan.js'
+import { scanConfig, scanSessions, scanRefs, planSync, piAiProviders, agentDefaultModel, insertProviders, applySync, planRewrite, applyRewrite } from '../lib/scan.js'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
@@ -160,6 +160,28 @@ console.log('\n=== 6. 沙盒端到端（在临时目录里真写，不碰真实�
     ok(rr2.dangling.length === 0, '沙盒：同步后不再有悬空引用')
     const pl2 = planSync(sc2, rr2)
     ok(pl2.actions.length === 0, '沙盒：同步是幂等的（再跑没有待办）')
+
+    // ── 换供应商（面板上说的"同步过去"，底层是 planRewrite/applyRewrite）───────
+    // 场景：alpha / beta / overlay 都写着 zz，现在要把它们整体换成 yy
+    const rp = planRewrite(sc2, rr2, { from: 'zz', to: { provider: 'yy', model: 'yy-9' } })
+    ok(rp.edits.length >= 2, '换供应商：计划里有多处要改（实际 ' + rp.edits.length + '）')
+    ok(rp.edits.every((e) => e.from === 'zz' && e.toProvider === 'yy'), '换供应商：每项都记了从哪到哪')
+    ok(rp.edits.some((e) => e.kind === 'overlay' && e.volatile), '换供应商：overlay 里的引用也会被改，并标记为易被覆盖')
+    const rRec = applyRewrite(sc2, rp.edits)
+    ok(rRec.some((r) => r.ok), '换供应商：写入成功')
+    ok(rRec.filter((r) => r.ok).every((r) => r.backup && existsSync(r.backup)), '换供应商：每处写前都留了备份')
+    const betaAfter = readFileSync(betaPatch, 'utf8')
+    ok(/provider:\s*yy/.test(betaAfter), '换供应商：beta 的 provider 已改成 yy')
+    ok(/model:\s*yy-9/.test(betaAfter), '换供应商：模型也一起换了')
+    ok(!/provider:\s*zz/.test(betaAfter), '换供应商：文件里不再有旧 provider 的引用')
+    const adm = agentDefaultModel(betaAfter)
+    ok(adm && adm.provider === 'yy' && adm.model === 'yy-9', '换供应商：改完仍能解析出 agent-default-model（结构没坏）')
+    ok(/^ {6}zz:/m.test(betaAfter), '换供应商：provider 的**定义**没被顺手删掉（只改选择）')
+    const rr3 = scanRefs(scanConfig(), null)
+    ok(!rr3.refs.some((r) => r.provider === 'zz'), '换供应商：再扫描已经没有 zz 的引用了')
+    // 同一份计划再跑一次：不该再动（行号已对不上 provider 了，应全部判失败而不是改坏）
+    const rRec2 = applyRewrite(sc2, rp.edits)
+    ok(!rRec2.some((r) => r.ok), '换供应商：旧计划重放不会二次改写（防手抖重复点击）')
   } finally {
     if (prevHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = prevHome

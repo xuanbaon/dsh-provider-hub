@@ -124,6 +124,21 @@ try {
   for (const [f, t] of before) { try { if (statSync(f).mtimeMs !== t) changed++ } catch { /* 忽略 */ } }
   ok(changed === 0, '预演没有修改任何配置文件')
 
+  // ── 换供应商（/rewrite）：预演不写盘，缺参数要 400 ─────────────────────
+  const fromA = (rf.refs || []).find((r) => r && r.provider) || null
+  const rwDry = await post('/dsh-provider-hub/rewrite', { from: fromA ? fromA.provider : 'nope', to: { provider: 'zz-new' }, apply: false })
+  ok(rwDry.ok === true && rwDry.applied === false, 'POST /rewrite {apply:false} 是预演（applied=false）')
+  ok(Array.isArray(rwDry.edits), '/rewrite 预演返回 edits 数组（' + ((rwDry.edits || []).length) + ' 处）')
+  let changedRw = 0
+  for (const [f, t] of before) { try { if (statSync(f).mtimeMs !== t) changedRw++ } catch { /* 忽略 */ } }
+  ok(changedRw === 0, '换供应商的预演没有修改任何配置文件')
+  const rwBad1 = await post('/dsh-provider-hub/rewrite', { to: { provider: 'x' }, apply: false })
+  ok(rwBad1.ok === false, 'POST /rewrite 缺 from 被拒绝：' + (rwBad1.error || ''))
+  const rwBad2 = await post('/dsh-provider-hub/rewrite', { from: 'x', apply: false })
+  ok(rwBad2.ok === false, 'POST /rewrite 缺 to.provider 被拒绝：' + (rwBad2.error || ''))
+  const rwSame = await post('/dsh-provider-hub/rewrite', { from: 'zz-same', to: { provider: 'zz-same' }, apply: false })
+  ok(rwSame.ok === true && (rwSame.edits || []).length === 0, 'POST /rewrite 换成自己 = 零改动')
+
   // 超大请求体：应被 413 挡掉，而不是把宿主拖住
   const big = '{"apply":false,"pad":"' + 'a'.repeat(60_000) + '"}'
   const over = await status('/dsh-provider-hub/sync', { method: 'POST', headers: { 'content-type': 'application/json' }, body: big })

@@ -24,13 +24,21 @@ DSH 的 provider 引用散在三个地方，改一处其余不动：
 
 典型链路：某个插件把「桌面当前选中的模型」原样抄进 overlay → overlay 是最后一层补丁（bundle → profile → `--patch`）→ 它指向的 profile 里根本没有那个 provider 的定义 → 那一轮 `NO_ADAPTER` 退出，连报告都不写。
 
-## 三个按钮
+## 面板上的四个动作
 
-| 按钮 | 做什么 | 数据来源 |
+| 动作 | 做什么 | 数据来源 |
 |---|---|---|
 | **扫描对话** | 每个会话最后一次实际用的 provider/model，并按 provider 汇总 | `storages/session_projcache/sessions/*.json` 的 `modelSelection.lastUsed` |
 | **扫描插件与配置** | 谁引用了哪个 provider，按「该 profile 自己有没有定义」判定：正常 / 悬空·可补 / 仅运行时 / 缺定义 | profile patch、插件生成的 overlay、插件自带 patch、插件 `config.json` |
-| **一键同步** | 先出计划（不写盘），确认后把**别处已定义的 provider** 原样追加进**引用了它却没定义的 profile** | 写目标：`profiles/<name>/cordis.patch.yml` |
+| **换供应商** | 面板上选「从 A → 换成 B（+模型）」，把所有写着 A 的地方**一起改掉**；并把 B 的定义补进还缺它的 profile | 写目标：profile patch、插件生成的 overlay、插件 `config.json` |
+| **一键同步（补定义）** | 先出计划（不写盘），确认后把**别处已定义的 provider** 原样追加进**引用了它却没定义的 profile** | 写目标：`profiles/<name>/cordis.patch.yml` |
+
+**换供应商**和**补定义**是两个方向，别搞混：
+
+- 补定义治的是「这份配置引用了 A，但自己没有 A 的定义」→ 把定义搬过来（治 `NO_ADAPTER`）。
+- 换供应商做的是「我不想用 A 了，改用 B」→ 把 `provider: A` 这一行改成 `provider: B`，再顺带把 B 的定义补上。
+  只改「选择」，**不删** A 的定义（你随时可以换回来）。
+
 
 ## 判定口径（重要）
 
@@ -47,15 +55,29 @@ DSH 的 provider 引用散在三个地方，改一处其余不动：
 
 只扫 `agent-default-model` 条目里的 `provider:`。别的条目里也有 `provider:`（子代理的 `spawn` / `fork` / `codex`、工具提供方…），那些不是模型供应商，扫进来只会制造假红。
 
-## 同步的行为边界
+## 写入的行为边界
+
+两种写入（换供应商 / 补定义）共用同一套安全规则：
+
+- **写前自检**：新文本必须能被重新解析、且真的改成了目标值 / 真的带上那些 provider，否则**放弃写入**，原文件保持原样。
+- **先备份**：写前复制 `*.bak-provider-hub-<时间>`，回滚就是覆盖回去；备份数量按偏好自动清理（默认每个文件留 20 个，只删本插件自己造的那种文件名）。
+- **原子替换**：先写同目录临时文件再 `rename`，中途被杀也不会留下一份被截断的 patch。
+- **一个文件失败不影响其它文件**；单个文件内多行改动从后往前改，行号不会互相错位。
+- **行号对不上就拒改**：如果那一行已经不是 `provider: <原值>`（文件被别的东西改过），这条判失败并要求重新扫描，绝不猜。
+
+补定义额外遵守：
 
 - **只追加**：在 `llm-pi-ai` 条目的 `providers:` 末尾追加缺的那几个块；不重排、不改你写的任何一行。
-- **写前自检**：新文本必须能被重新解析、且真的带上那些 provider，否则**放弃写入**，原文件保持原样。
-- **先备份**：写前复制 `cordis.patch.yml.bak-provider-hub-<时间>`，回滚就是覆盖回去；备份数量按偏好自动清理（默认每个文件留 20 个，只删本插件自己造的那种文件名）。
-- **原子替换**：先写同目录临时文件再 `rename`，中途被杀也不会留下一份被截断的 patch。
 - **幂等**：已经有定义的不重复加，连点几次都安全。
-- **不动 overlay**：`headless-overlay.yml` 是插件每轮重写的，改了也会被覆盖 —— 所以修法永远是「补 profile 的定义」。
+
+换供应商额外遵守：
+
+- **只改选择，不删定义**：把 `provider: A` 改成 `B`，`A` 的 `providers:` 块原样留着，换回来很容易。
+- **overlay 会被改，也会被提醒**：插件生成的 `headless-overlay.yml` 属于"每轮重写的文件"，换了它下次可能被重写回去。
+  如果那个 overlay 是「跟随桌面端选中的模型」那种，改完 `desktop` 那份它下一轮就自己跟上了 —— 页面会把这类文件单独标出来。
+- **旧计划不能重放**：同一份计划再执行一次会全部判失败（因为行上的值已经不是原来那个），防手抖连点。
 - **要重启才生效**：loader 不热读 `cordis.patch.yml`。定时 / 值班那类每轮新起进程的任务会立刻用上新配置。
+
 
 ## 数据存哪（重装不丢）
 
@@ -146,7 +168,8 @@ node tests/sync.mjs --apply   # 真写（先备份）
 | GET | `/dsh-provider-hub/sessions?limit=200` | 会话实际在用谁 |
 | GET | `/dsh-provider-hub/refs` | 引用与悬空判定 + 同步计划 |
 | GET | `/dsh-provider-hub/state` | 偏好 / 已忽略项 / 同步历史 / 数据目录 |
-| POST | `/dsh-provider-hub/sync` | `{apply:false}` 预演 / `{apply:true}` 写盘（先备份） |
+| POST | `/dsh-provider-hub/sync` | `{apply:false}` 预演 / `{apply:true}` 写盘（先备份）—— **补定义** |
+| POST | `/dsh-provider-hub/rewrite` | `{from, to:{provider,model}, apply, kinds?}` —— **换供应商**：把所有引用 from 的地方改成 to，随后自动补 to 的定义 |
 | POST | `/dsh-provider-hub/prefs` | 改偏好 `{patch:{...}}` |
 | POST | `/dsh-provider-hub/ignore` | 忽略 / 取消忽略一条引用 |
 | POST | `/dsh-provider-hub/history` | 清空同步历史 `{clear:true}` |
