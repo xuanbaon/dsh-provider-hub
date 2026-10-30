@@ -23,6 +23,7 @@ const ALL = [
   { file: 'inject.mjs', desc: '注入契约（inject 声明 / 严格 ctx 挂载 / 缺服务降级）' },
   { file: 'routes.mjs', desc: '路由（真 http 打全部接口 + 安全闸门）' },
   { file: 'client_contract.mjs', desc: '前端契约（自注册 / 槽位 / 错误边界）' },
+  { file: 'layout.mjs', desc: '版式（长路径独占副行、主行不再被挤）' },
 ]
 
 // 支持按关键字过滤，方便开发时只跑其中一两个
