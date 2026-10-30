@@ -1,6 +1,6 @@
 {
   "name": "dsh-provider-hub",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "DeepSeek Harness 插件：在设置里一页看清「模型提供商」的三件事 —— ① 会话实际在用谁 ② 插件与 profile 配置引用了谁 ③ 谁被引用了却没人定义（悬空引用）。带一键同步：把已定义的 provider 补进引用了它的 profile，消除 NO_ADAPTER 这类「引用了不存在的供应商」故障。",
   "license": "MIT",
   "author": "xuanbaon",
@@ -35,6 +35,7 @@
     "test:scan": "node tests/selftest.mjs",
     "test:store": "node tests/store.mjs",
     "test:errors": "node tests/errors.mjs",
+    "test:inject": "node tests/inject.mjs",
     "test:routes": "node tests/routes.mjs",
     "test:client": "node tests/client_contract.mjs",
     "sync": "node tests/sync.mjs",

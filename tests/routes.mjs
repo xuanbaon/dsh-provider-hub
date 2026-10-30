@@ -17,21 +17,30 @@ import { fileURLToPath } from 'node:url'
 const dataDir = mkdtempSync(join(tmpdir(), 'dsh-hub-routes-'))
 process.env.DSH_PROVIDER_HUB_DATA = dataDir
 
-const { apply } = await import('../lib/host.js')
+const host = await import('../lib/host.js')
 const { scanConfig } = await import('../lib/scan.js')
+const { makeStrictCtx } = await import('./fake-ctx.mjs')
 
 let fail = 0
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail++ }
 
 let route = null
-const ctx = {
-  get: () => undefined, // 没有 llm / connection → 走「读不到就未知」的分支
-  effect: (fn) => { fn(); return () => {} },
-  webServer: { register: (def) => { route = def; return () => {} } },
-}
-apply(ctx)
+// 用「像 cordis 那样严格」的 ctx：未写进 inject 的服务访问会抛。
+// 这样「忘声明 inject 导致真机 404」在本用例里就能被抓到（v1.0.0 就是栽在这）。
+const ctx = makeStrictCtx({
+  inject: host.inject,
+  services: { webServer: { register: (def) => { route = def; return () => {} } } },
+  getTable: {}, // 没有 llm / connection → 走「读不到就未知」的分支
+})
+let applyThrew = null
+try { host.apply(ctx) } catch (e) { applyThrew = e }
+ok(!applyThrew, 'apply 未抛异常' + (applyThrew ? '：' + applyThrew.message : ''))
 ok(!!route, 'ctx.webServer.register 被调用')
 ok(route && route.kind === 'prefix' && route.path === '/dsh-provider-hub', '注册的是 prefix /dsh-provider-hub')
+if (!route) {
+  console.log('\n没有挂上路由，后续用例无法继续。')
+  process.exit(1)
+}
 
 const server = http.createServer((req, res) => route.handler(req, res))
 await new Promise((r) => server.listen(0, '127.0.0.1', r))

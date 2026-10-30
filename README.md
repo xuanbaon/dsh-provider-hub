@@ -104,16 +104,22 @@ DSH 的 provider 引用散在三个地方，改一处其余不动：
 
 ## 测试
 
-5 个用例，覆盖扫描、持久化、容错、路由、前端契约；全部不依赖 DSH 运行时，也不碰你真实的配置和偏好。
+6 个用例，覆盖扫描、持久化、容错、注入契约、路由、前端契约；全部不依赖 DSH 运行时，也不碰你真实的配置和偏好。
 
 ```bash
 npm test                                  # 跑全部
 npm run test:scan                         # 扫描 + 纯函数 + 沙盒端到端（临时目录里真写）
 npm run test:store                        # 持久化：原子写 / 坏文件自愈 / 类型兜底
 npm run test:errors                       # 容错：坏文件不崩、校验不过不写盘
+npm run test:inject                       # 注入契约：inject 声明 / 严格 ctx 挂载 / 缺服务降级
 npm run test:routes                       # 路由：起真 http 打全部接口（临时数据目录）
 npm run test:client                       # 前端契约：自注册 / 槽位 / 错误边界
 ```
+
+`tests/inject.mjs` 与 `tests/fake-ctx.mjs` 是专门为一次真实事故加的：v1.0.0 忘了
+`export const inject = ['webServer']`，cordis 拒绝 `ctx.webServer`，路由压根没挂上，
+表现是**设置页能打开、但每个接口都 404**。假 ctx 如果「要什么给什么」就永远测不出来，
+所以现在复刻了 cordis 的注入规则——没写进 `inject` 的服务，访问属性会直接抛。
 
 在没装 Node 的机器上（比如只有 DSH 自带运行时），用 Electron 的 Node 跑：
 
@@ -145,6 +151,37 @@ node tests/sync.mjs --apply   # 真写（先备份）
 | POST | `/dsh-provider-hub/history` | 清空同步历史 `{clear:true}` |
 
 全部走本机同源校验 + DSH 信任栅栏（`connection.requestRejection`，拿不到就退回同源判定）。
+
+## 故障排查
+
+### 设置页红字「接口没有挂上（HTTP 404）」
+
+意思是**宿主半边没把路由挂上**，前端请求打到了 DSH Host 的兜底 404（返回 HTML，所以「不是 JSON」）。
+先看日志，原因都写在里面：
+
+```
+~/.dsh/provider-hub/logs/provider-hub.log
+```
+
+按出现频率排：
+
+| 日志里看到 | 含义 | 处理 |
+|---|---|---|
+| `cannot get property "webServer" without inject` | `host.js` 没声明 `export const inject = ['webServer']`（v1.0.0 的原始 bug） | 升级到 1.0.1+ |
+| 完全没有 `已注册路由 /dsh-provider-hub/*` 这行 | 插件没被加载，或加载后立刻退出了 | 托盘退出 DSH 再开（loader 不热读插件代码） |
+| `宿主没有可用的 webServer 服务` | DSH 版本没有这个服务 | 升级 DSH |
+
+想不打开界面就确认路由在不在（`401` = 挂了且在鉴权，`404` = 没挂）：
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5488/dsh-provider-hub/health
+```
+
+### 强依赖：`export const inject`
+
+cordis 里**只有写进 `inject` 数组的服务才能用 `ctx.<name>` 访问**，没写的会直接抛异常（不是返回 undefined）。
+本插件的 `host.js` 顶部有 `export const inject = ['webServer']`，删掉它页面就会全 404。
+`tests/inject.mjs` 专门守这条。
 
 ## 已知边界
 

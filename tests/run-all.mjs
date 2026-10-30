@@ -20,6 +20,7 @@ const ALL = [
   { file: 'selftest.mjs', desc: '扫描 + 纯函数 + 沙盒端到端' },
   { file: 'store.mjs', desc: '持久化（原子写 / 坏文件自愈 / 类型兜底）' },
   { file: 'errors.mjs', desc: '容错（故障注入：坏文件不崩、不写坏盘）' },
+  { file: 'inject.mjs', desc: '注入契约（inject 声明 / 严格 ctx 挂载 / 缺服务降级）' },
   { file: 'routes.mjs', desc: '路由（真 http 打全部接口 + 安全闸门）' },
   { file: 'client_contract.mjs', desc: '前端契约（自注册 / 槽位 / 错误边界）' },
 ]
