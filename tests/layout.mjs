@@ -93,9 +93,20 @@ let fail = 0
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail++ }
 
 // ── 会记账的 React 替身 ─────────────────────────────────────────────────
-let states = []
-let hookIdx = 0
-const effects = []
+// Section 组件自身也有 useState（折叠状态），而且同一页有多个 Section 实例。
+// 真实 React 里「同一种组件的每个实例」各自有独立 state，所以这里的帧要按
+// **实例**隔离，不能按组件函数引用隔离（那样多个 Section 会互相覆盖）。
+// 实例的稳定标识 = 它在节点树里的位置（从根到该节点，每层是「组件函数引用 + 兄弟序号」）。
+let effects = []
+const framesByKey = new Map() // 实例路径 -> { states, idx }
+let compStack = [] // 当前展开链上的「实例路径」字符串
+
+const frameOf = () => {
+  const key = compStack[compStack.length - 1]
+  let f = framesByKey.get(key)
+  if (!f) { f = { states: [], idx: 0 }; framesByKey.set(key, f) }
+  return f
+}
 
 const ReactStub = {
   createElement: (t, p, ...children) => {
@@ -104,10 +115,11 @@ const ReactStub = {
     return { t, p: props, c: children }
   },
   useState: (init) => {
-    const i = hookIdx++
-    if (!(i in states)) states[i] = typeof init === 'function' ? init() : init
-    const set = (v) => { states[i] = typeof v === 'function' ? v(states[i]) : v }
-    return [states[i], set]
+    const frame = frameOf()
+    const i = frame.idx++
+    if (!(i in frame.states)) frame.states[i] = typeof init === 'function' ? init() : init
+    const set = (v) => { frame.states[i] = typeof v === 'function' ? v(frame.states[i]) : v }
+    return [frame.states[i], set]
   },
   // 只记录，稍后手动执行 —— 这样能控制「数据到位后再重渲染一次」
   useEffect: (fn) => { effects.push(fn) },
@@ -123,7 +135,7 @@ const req = (name) => {
 
 const mod = captured.factory(req)
 
-// ── 渲染一次（hookIdx 归零，保证 useState 顺序对齐） ────────────────────
+// ── 渲染一次（每次把所有实例的 hook 计数归零，但 state 保留） ────────────
 const Panel = (() => {
   let comp = null
   const slots = {
@@ -138,11 +150,12 @@ const Panel = (() => {
 ok(typeof Panel === 'function', '拿到 Panel 组件')
 
 const render = () => {
-  hookIdx = 0
+  for (const f of framesByKey.values()) f.idx = 0 // state 保留，只把 hook 计数归零
+  compStack = []
   effects.length = 0
   let node
   try {
-    node = Panel() // 只产出节点（Panel 里包了错误边界，真正的 hooks 在展开时执行）
+    node = Panel()
   } catch (e) {
     return { error: String((e && e.message) || e), tree: null, effects: [] }
   }
@@ -151,13 +164,15 @@ const render = () => {
 }
 
 // ── 节点树展开：把函数组件都执行掉，方便按结构断言 ──────────────────────
-const expand = (node) => {
+// 每个函数组件实例的「路径」= 父实例路径 + 自己在父级 children 里的序号，
+// 这样同一函数组件出现多次时，各自的 useState 互不串扰。
+const expand = (node, path) => {
   if (node === null || node === undefined || node === false || node === true) return null
   if (typeof node === 'string' || typeof node === 'number') return String(node)
   if (Array.isArray(node)) {
     const out = []
-    for (const x of node) {
-      const r = expand(x)
+    for (let i = 0; i < node.length; i++) {
+      const r = expand(node[i], path ? path + ':' + i : 'a' + i)
       if (Array.isArray(r)) out.push(...r)
       else if (r !== null) out.push(r)
     }
@@ -165,12 +180,17 @@ const expand = (node) => {
   }
   if (typeof node !== 'object') return null
   if (typeof node.t === 'function') {
-    // 函数组件：拿 props 调一次（props.children 已由 createElement 补齐）
-    try { return expand(node.t(node.p || {})) } catch { return null }
+    const myPath = path || 'root'
+    compStack.push(myPath)
+    let r = null
+    try { r = expand(node.t(node.p || {}), myPath) } catch { r = null }
+    compStack.pop()
+    return r
   }
   const kids = []
-  for (const ch of node.c || []) {
-    const r = expand(ch)
+  const kidsArr = node.c || []
+  for (let i = 0; i < kidsArr.length; i++) {
+    const r = expand(kidsArr[i], path ? path + ':' + i : 'k' + i)
     if (Array.isArray(r)) kids.push(...r)
     else if (r !== null) kids.push(r)
   }
@@ -201,6 +221,17 @@ const rowsOf = (table) => {
 }
 const cellsOf = (tr) => kidsOf(tr, 'td')
 
+// ── 折叠区块：点击「点击展开」的标题行，把收起的 Section 全部展开 ──────
+// Section 标题是个带 onClick 的 div，其 title 属性是「点击展开」/「点击收起」。
+// 展开后再检查表格，避免「默认收起」把表格藏起来导致断言误判。
+const expandAllSections = (tree) => {
+  walk(tree, (n) => {
+    if (n && n.t === 'div' && n.p && n.p.title === '点击展开' && typeof n.p.onClick === 'function') {
+      try { n.p.onClick() } catch { /* 忽略 */ }
+    }
+  })
+}
+
 // ── 第一次渲染 + 跑 effect + 等数据落地 ─────────────────────────────────
 const first = render()
 ok(!first.error, '首次渲染不抛异常' + (first.error ? '：' + first.error : ''))
@@ -209,8 +240,11 @@ for (const fn of first.effects || []) { try { fn() } catch { /* 忽略 */ } }
 await new Promise((r) => setTimeout(r, 150)) // 让 fetch → then → setState 的微任务链跑完
 
 // ── 第二次渲染：此时 state 里应已有 overview / refs / state ─────────────
-const second = render()
+let second = render()
 ok(!second.error, '带数据渲染不抛异常' + (second.error ? '：' + second.error : ''))
+// 把默认收起的 Section 展开（点「点击展开」标题），再取一份展开后的树
+expandAllSections(second.tree)
+second = render()
 const tree = second.tree
 
 const tables = []
@@ -281,7 +315,9 @@ ok(!!scanSessionsBtn, '找到「扫描对话」按钮')
 if (scanSessionsBtn && scanSessionsBtn.p && typeof scanSessionsBtn.p.onClick === 'function') {
   try { scanSessionsBtn.p.onClick() } catch (e) { ok(false, '点「扫描对话」抛错：' + e.message) }
   await new Promise((r) => setTimeout(r, 150))
-  const third = render()
+  let third = render()
+  expandAllSections(third.tree) // 会话 Section 默认收起，展开后再取树
+  third = render()
   const t3 = []
   walk(third.tree, (n) => { if (n.t === 'table') t3.push(n) })
   const h3 = t3.map(headerOf)

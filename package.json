@@ -1,6 +1,6 @@
 {
   "name": "dsh-provider-hub",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "DeepSeek Harness 插件：在设置里一页看清「模型提供商」的三件事 —— ① 会话实际在用谁 ② 插件与 profile 配置引用了谁 ③ 谁被引用了却没人定义（悬空引用）。带一键同步：把已定义的 provider 补进引用了它的 profile，消除 NO_ADAPTER 这类「引用了不存在的供应商」故障。",
   "license": "MIT",
   "author": "xuanbaon",
