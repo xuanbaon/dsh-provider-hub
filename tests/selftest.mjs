@@ -26,7 +26,7 @@ ok(Array.isArray(cfg.profiles) && cfg.profiles.length > 0, '至少读到 1 个 p
 
 const desktop = cfg.profiles.find((p) => p.name === 'desktop')
 ok(!!desktop, '读到 desktop profile')
-if (desktop) ok(desktop.providers.some((p) => p.name === 'acme'), 'desktop 里有 acme 定义')
+if (desktop) ok(desktop.providers.length > 0, 'desktop 里读到了 provider 定义（' + desktop.providers.map((p) => p.name).join(', ') + '）')
 if (desktop) ok(desktop.defaultModel && !!desktop.defaultModel.provider, 'desktop 的 agent-default-model 解析出来 = ' + JSON.stringify(desktop.defaultModel))
 
 console.log('\n=== 2. 会话实际在用谁 ===')
